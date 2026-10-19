@@ -1,0 +1,26 @@
+# Copia este fichero a config.yaml y ajústalo. Los secretos van en .env, no aquí.
+
+# Zona horaria para "el día" de los límites y para mostrar fechas.
+timezone: Atlantic/Canary
+
+# Dónde se guardan el token y (en la fase 2) la base de datos SQLite.
+# En Docker lo sobrescribe REGULATOR_DATA_DIR=/data.
+data_dir: ./data
+
+log_level: INFO
+
+spotify:
+  # Debe coincidir EXACTAMENTE con el Redirect URI registrado en el dashboard de Spotify.
+  # Spotify no admite "localhost": usa la IP de loopback explícita.
+  redirect_uri: http://127.0.0.1:8888/callback
+
+# Avisos por correo (caducidad del login, pérdida de acceso). Sin esta sección,
+# los avisos solo aparecen en el log. La contraseña va en .env (SMTP_PASSWORD).
+# Ejemplo para Gmail; con otro proveedor cambia servidor y puerto.
+email:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  security: starttls      # starttls (puerto 587) o ssl (puerto 465)
+  username: tu-cuenta@gmail.com
+  to_addr: tu-cuenta@gmail.com
+  # from_addr: opcional, por defecto igual que username

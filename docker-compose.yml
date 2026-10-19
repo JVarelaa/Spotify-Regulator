@@ -1,0 +1,11 @@
+services:
+  regulator:
+    build: .
+    image: spotify-regulator:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./config.yaml:/config/config.yaml:ro
+    # Sin puertos publicados: el callback OAuth solo se expone durante el login,
+    # con `docker compose run -p 127.0.0.1:8888:8888 ...` (ver README).
