@@ -64,7 +64,11 @@ async def login(config: Config, creds: Secrets, *, bind_host: str, paste: bool) 
         raw = await asyncio.to_thread(input, "   Pégala aquí: ")
         params = dict(parse_qsl(urlsplit(raw.strip()).query))
     else:
-        print(f"2. Esperando la redirección en {bind_host}:{config.spotify.redirect_port} (máx. {CALLBACK_TIMEOUT_S // 60} min)...")
+        # flush: when stdout isn't a terminal Python buffers it, and the URL above would never show.
+        print(
+            f"2. Esperando la redirección en {bind_host}:{config.spotify.redirect_port} (máx. {CALLBACK_TIMEOUT_S // 60} min)...",
+            flush=True,
+        )
         params = await wait_for_callback(bind_host, config.spotify.redirect_port, config.spotify.redirect_path, CALLBACK_TIMEOUT_S)
 
     if "error" in params:

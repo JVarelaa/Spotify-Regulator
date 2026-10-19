@@ -150,7 +150,9 @@ class SpotifyClient:
             if resp.is_error:
                 message, reason = _error_details(resp)
                 raise SpotifyError(resp.status_code, message, reason)
-            if resp.status_code == 204 or not resp.content:
+            # The docs say player commands answer 204, but PUT /me/player/repeat really answers 200
+            # with an opaque plain-text id and no Content-Type. Only JSON bodies carry data for us.
+            if "json" not in resp.headers.get("content-type", ""):
                 return None
             return resp.json()
         raise SpotifyUnavailable(f"{method} {path} falló tras {self._max_attempts} intentos")

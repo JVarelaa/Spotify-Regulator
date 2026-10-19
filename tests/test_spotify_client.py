@@ -53,6 +53,12 @@ def test_204_no_active_device_returns_none():
     assert result is None
 
 
+def test_player_command_with_plain_text_200_body_is_ok():
+    # Real response seen from PUT /me/player/repeat on 2026-10-19: 200, no Content-Type, opaque id.
+    result, _, _ = run(lambda req: httpx.Response(200, content=b"R_9rHIXKMjoutHXKNARyZpoU2n0"), lambda c: c.set_repeat("off"))
+    assert result is None
+
+
 def test_playback_requests_episodes_too():
     seen = []
 
