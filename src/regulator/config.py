@@ -83,6 +83,10 @@ class Config(BaseModel):
     def notices_path(self) -> Path:
         return self.data_dir / "notices.json"
 
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "regulator.db"
+
 
 class Secrets(BaseModel):
     spotify_client_id: str
