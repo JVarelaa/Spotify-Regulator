@@ -40,3 +40,17 @@ def test_data_dir_env_overrides_file(tmp_path, monkeypatch):
     monkeypatch.setenv("REGULATOR_DATA_DIR", "/data")
     config = load_config(write(tmp_path, "data_dir: ./elsewhere\n"))
     assert str(config.token_path) == "/data/token.json"
+
+
+def test_polling_defaults_and_overrides(tmp_path, monkeypatch):
+    monkeypatch.delenv("REGULATOR_DATA_DIR", raising=False)
+    defaults = load_config(tmp_path / "missing.yaml").polling
+    assert (defaults.playing_interval_s, defaults.idle_interval_s, defaults.recently_played_interval_min) == (3, 30, 60)
+    config = load_config(write(tmp_path, "polling:\n  playing_interval_s: 5\n"))
+    assert config.polling.playing_interval_s == 5
+    assert config.polling.idle_interval_s == 30
+
+
+def test_polling_intervals_must_be_positive(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, "polling:\n  idle_interval_s: 0\n"))

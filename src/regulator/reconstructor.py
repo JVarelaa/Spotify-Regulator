@@ -9,12 +9,13 @@ Rules (decided for this project):
 - Pauses produce nothing. When music stops (nothing playing, podcast, ad) the play closes as
   completed or, below the threshold, as interrupted, which is not a skip.
 
-Pure logic: no network, no database. State lives in memory.
+Pure logic: no network, no database. State lives in memory; snapshot()/restore() let the
+service keep the play in progress across a restart instead of storing it twice.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 
 
@@ -102,13 +103,17 @@ class Reconstructor:
         completion_ratio: float = 0.5,
         completion_max_ms: int = 240_000,
         rewind_tolerance_ms: int = 3_000,
+        resume_tolerance_ms: int = 10_000,
     ):
         self._ratio = completion_ratio
         self._max_ms = completion_max_ms
         # Spotify's reported position wobbles a little between snapshots; only a bigger jump
         # backwards counts as a restart or rewind.
         self._rewind_tolerance = rewind_tolerance_ms
+        self._resume_tolerance = resume_tolerance_ms
         self._play: _Play | None = None
+        # True right after restore(): the restored play is kept only if the next sample continues it.
+        self._resumed = False
 
     @property
     def current(self) -> Sample | None:
@@ -117,6 +122,12 @@ class Reconstructor:
 
     def observe(self, sample: Sample | None) -> list[ListenEvent]:
         """Feed one snapshot (None = no music playing). Returns the plays it closed."""
+        if self._resumed:
+            self._resumed = False
+            if not self._continues(sample):
+                # We don't know how the restored play ended, so it's dropped instead of stored with
+                # guessed data. recently-played reports it if it lasted more than 30 s.
+                self._play = None
         if sample is None:
             return self._close(stopped=True)
         play = self._play
@@ -134,9 +145,35 @@ class Reconstructor:
         play.last = sample
         return []
 
-    def flush(self) -> list[ListenEvent]:
-        """Close the play in progress, e.g. on shutdown."""
-        return self._close(stopped=True)
+    def snapshot(self) -> dict | None:
+        """The play in progress as plain (JSON-friendly) data, to carry it across a restart."""
+        play = self._play
+        if play is None:
+            return None
+        return {"first": asdict(play.first), "last": asdict(play.last), "is_repeat": play.is_repeat}
+
+    def restore(self, snapshot: dict) -> None:
+        """Take back a play saved by a previous run. It stays provisional until the next sample.
+
+        Raises KeyError, TypeError or ValueError if the snapshot is malformed.
+        """
+        self._play = _Play(
+            first=_sample_from_dict(snapshot["first"]),
+            last=_sample_from_dict(snapshot["last"]),
+            is_repeat=bool(snapshot["is_repeat"]),
+        )
+        self._resumed = True
+
+    def _continues(self, sample: Sample | None) -> bool:
+        """Is `sample` the restored play carrying on? Same track, and the position moved as much as
+        the time that passed (none if it was paused). A play that restarted meanwhile, e.g. with
+        repeat-one, would be somewhere else."""
+        last = self._play.last if self._play else None
+        if last is None or sample is None or sample.track_id != last.track_id:
+            return False
+        elapsed = sample.observed_at_ms - last.observed_at_ms
+        expected = elapsed if last.is_playing else 0
+        return abs((sample.progress_ms - last.progress_ms) - expected) <= self._resume_tolerance
 
     def threshold_ms(self, duration_ms: int) -> int:
         if duration_ms <= 0:
@@ -172,3 +209,8 @@ class Reconstructor:
             )
         ]
 
+
+
+def _sample_from_dict(data: dict) -> Sample:
+    # JSON turns the tuples into lists.
+    return Sample(**{**data, "artist_ids": tuple(data["artist_ids"]), "artist_names": tuple(data["artist_names"])})

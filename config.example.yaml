@@ -24,3 +24,10 @@ email:
   username: tu-cuenta@gmail.com
   to_addr: tu-cuenta@gmail.com
   # from_addr: opcional, por defecto igual que username
+
+# Cada cuánto se consulta Spotify. Más corto detecta mejor los skips rápidos, pero gasta más
+# cuota de Development Mode (se cuenta por cuenta de desarrollador y no tiene cifras públicas).
+polling:
+  playing_interval_s: 3              # mientras suena música
+  idle_interval_s: 30                # sin nada sonando o en pausa
+  recently_played_interval_min: 60   # sincronización del historial reciente

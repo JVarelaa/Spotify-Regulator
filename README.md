@@ -80,6 +80,22 @@ docker compose run --rm regulator check --write   # + pone repeat al valor que y
 `--write` necesita que haya algo sonando en algún dispositivo. Saltar pista y pausar no se
 prueban porque interrumpirían la reproducción.
 
+## 5. Arrancar el servicio
+
+```sh
+docker compose up -d
+docker compose logs -f   # logs en JSON, una línea por evento
+docker compose ps        # STATUS muestra (healthy) mientras el bucle del reproductor da vueltas
+```
+
+Consulta el reproductor cada 3 s mientras suena música y cada 30 s si no suena nada,
+sincroniza `recently-played` al arrancar y cada hora, y revisa los avisos de caducidad cada
+minuto. Los intervalos están en la sección `polling` de `config.yaml`.
+
+Para actualizarlo: `docker compose up -d --build`. Si se para con una canción a medias, al
+arrancar la retoma si sigue sonando por donde corresponde; si no, se descarta y la recupera
+`recently-played` (si sonó más de 30 s), así que nunca cuenta dos veces.
+
 ## Desarrollo local
 
 ```sh

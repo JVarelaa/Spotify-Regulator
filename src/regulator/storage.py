@@ -174,6 +174,10 @@ class Storage:
                 (key, value),
             )
 
+    def delete_state(self, key: str) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM state WHERE key = ?", (key,))
+
     def execute(self, sql: str, params: tuple = ()) -> list[tuple]:
         """Read-only helper for stats and tests."""
         return self._db.execute(sql, params).fetchall()

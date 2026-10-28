@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class ConfigError(Exception):
@@ -57,6 +57,14 @@ class EmailConfig(BaseModel):
     to_addr: str
 
 
+class PollingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    playing_interval_s: float = Field(3.0, gt=0)
+    idle_interval_s: float = Field(30.0, gt=0)  # nothing playing, or paused
+    recently_played_interval_min: float = Field(60.0, gt=0)
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -65,6 +73,7 @@ class Config(BaseModel):
     log_level: str = "INFO"
     spotify: SpotifyConfig = SpotifyConfig()
     email: EmailConfig | None = None  # without it, notifications only go to the log
+    polling: PollingConfig = PollingConfig()
 
     @field_validator("timezone")
     @classmethod
@@ -86,6 +95,10 @@ class Config(BaseModel):
     @property
     def db_path(self) -> Path:
         return self.data_dir / "regulator.db"
+
+    @property
+    def heartbeat_path(self) -> Path:
+        return self.data_dir / "heartbeat"
 
 
 class Secrets(BaseModel):

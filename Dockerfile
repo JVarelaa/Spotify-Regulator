@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir .
 USER regulator
 VOLUME /data
 
-# Fase 2 añadirá un HEALTHCHECK basado en el latido del bucle de polling.
+# El bucle del reproductor deja un latido en /data/heartbeat en cada vuelta; si lleva más de
+# 2 min sin cambiar, el contenedor se marca como unhealthy (Docker no lo reinicia por eso).
+HEALTHCHECK --interval=60s --timeout=15s --start-period=30s --retries=2 CMD ["regulator", "healthcheck"]
 ENTRYPOINT ["regulator"]
 CMD ["run"]

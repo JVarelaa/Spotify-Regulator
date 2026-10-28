@@ -135,3 +135,11 @@ def test_data_survives_reopening_and_uses_wal(tmp_path):
     db = Storage(path)
     assert db.execute("SELECT COUNT(*) FROM events")[0][0] == 1
     assert db.get_state("cursor") == "42"
+
+
+def test_delete_state(tmp_path):
+    db = Storage(tmp_path / "r.db")
+    db.set_state("k", "v")
+    db.delete_state("k")
+    db.delete_state("missing")
+    assert db.get_state("k") is None

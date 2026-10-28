@@ -1,10 +1,12 @@
-"""Command line entry point: `regulator login | check | run`."""
+"""Command line entry point: `regulator login | check | test-email | run | healthcheck`."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -14,10 +16,15 @@ import httpx
 from .auth import AuthError, TokenManager, TokenStore
 from .check import format_results, format_timestamp, run_checks
 from .config import Config, ConfigError, load_config, load_dotenv, load_secrets
+from .expiry import ExpiryNotices
 from .logging_setup import setup_logging
 from .login import login
 from .notify import NotificationError, build_notifier
+from .service import HEARTBEAT_MAX_AGE_S, Service, heartbeat_age
 from .spotify import SpotifyClient
+from .storage import Storage
+
+log = logging.getLogger(__name__)
 
 REFRESH_EXPIRY_WARNING_S = 21 * 24 * 3600
 
@@ -59,11 +66,52 @@ async def cmd_test_email(config: Config, args: argparse.Namespace) -> int:
 
 
 async def cmd_run(config: Config, args: argparse.Namespace) -> int:
-    print("El servicio de polling (F1) llega en la fase 2.", file=sys.stderr)
-    return 2
+    creds = load_secrets()
+    notifier = build_notifier(config, creds)
+    # Docker stops the container with SIGTERM; as PID 1, Python would otherwise ignore it.
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+
+    storage = Storage(config.db_path)
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            tokens = TokenManager(TokenStore(config.token_path), creds.spotify_client_id, http)
+            notices = ExpiryNotices(config.notices_path, notifier, config.timezone, config.spotify.redirect_port)
+            service = Service(
+                SpotifyClient(tokens, http), tokens, storage, notices, config.polling, config.heartbeat_path
+            )
+            log.info("service_started", extra={"polling": config.polling.model_dump()})
+            try:
+                await service.run(stop)
+            except ExceptionGroup:
+                log.exception("service_crashed")  # exit non-zero: Docker restarts the container
+                return 1
+    finally:
+        storage.close()
+    log.info("service_stopped")
+    return 0
 
 
-COMMANDS = {"login": cmd_login, "check": cmd_check, "test-email": cmd_test_email, "run": cmd_run}
+async def cmd_healthcheck(config: Config, args: argparse.Namespace) -> int:
+    age = heartbeat_age(config.heartbeat_path)
+    if age is None:
+        print("Sin latido: el servicio no ha completado ninguna vuelta.", file=sys.stderr)
+        return 1
+    if age > HEARTBEAT_MAX_AGE_S:
+        print(f"Último latido hace {age:.0f} s: el bucle del reproductor parece colgado.", file=sys.stderr)
+        return 1
+    return 0
+
+
+COMMANDS = {
+    "login": cmd_login,
+    "check": cmd_check,
+    "test-email": cmd_test_email,
+    "run": cmd_run,
+    "healthcheck": cmd_healthcheck,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     sub.add_parser("test-email", help="envía un correo de prueba con la configuración de email")
-    sub.add_parser("run", help="servicio 24/7 (fase 2)")
+    sub.add_parser("run", help="servicio 24/7: registra escuchas y envía avisos")
+    sub.add_parser("healthcheck", help="sale con 0 si el servicio dio una vuelta hace poco (para Docker)")
 
     args = parser.parse_args(argv)
     load_dotenv(Path(".env"))

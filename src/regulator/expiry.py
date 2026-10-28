@@ -69,7 +69,7 @@ class ExpiryNotices:
         self._retry_at = 0.0
 
     async def check(self, token: Token | None, dead_token: Token | None) -> None:
-        """Call on every loop tick; cheap unless a notice is actually due."""
+        """Call periodically (the service does every minute); cheap unless a notice is actually due."""
         now = self._clock()
         if now < self._retry_at:
             return

@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from regulator.reconstructor import Outcome, Reconstructor, Sample, sample_from_playback
 
 MIN = 60_000
@@ -125,10 +129,76 @@ def test_nothing_playing_repeatedly_emits_nothing():
     assert len(events) == 1
 
 
-def test_flush_closes_play_in_progress():
-    r, _ = feed([s("A", 30 * SEC, 0)])
-    assert outcomes(r.flush()) == [("A", Outcome.INTERRUPTED, False)]
-    assert r.flush() == []
+# --- carrying a play across a restart -------------------------------------------------------
+
+
+def restarted(samples_before):
+    """Reconstructor of a new run that restored the play saved by `samples_before` (via JSON)."""
+    r, _ = feed(samples_before)
+    snapshot = json.loads(json.dumps(r.snapshot()))
+    new = Reconstructor()
+    new.restore(snapshot)
+    return new
+
+
+def test_snapshot_is_none_without_a_play():
+    assert Reconstructor().snapshot() is None
+    r, _ = feed([s("A", 0, 0), None])
+    assert r.snapshot() is None
+
+
+def test_same_play_carrying_on_is_continued_as_one_event():
+    # Restart at 2:30 of a 3:30 song, back 10 s later: one play, with its real start.
+    r = restarted([s("A", 0, 0), s("A", 2 * MIN + 30 * SEC, 150)])
+    assert r.observe(s("A", 2 * MIN + 40 * SEC, 160, duration_ms=3 * MIN + 30 * SEC)) == []
+    events = r.observe(s("B", 0, 215))
+    assert outcomes(events) == [("A", Outcome.COMPLETED, False)]
+    assert events[0].started_at_ms == 0
+    assert events[0].ended_at_ms == 160 * SEC
+
+
+def test_restored_play_keeps_its_repeat_flag():
+    r = restarted([s("A", 3 * MIN + 57 * SEC, 0), s("A", 2 * SEC, 5), s("A", 1 * MIN, 63)])
+    assert r.observe(s("A", 2 * MIN + 10 * SEC, 133)) == []
+    assert outcomes(r.observe(None)) == [("A", Outcome.COMPLETED, True)]
+
+
+def test_paused_play_still_paused_is_continued():
+    r = restarted([s("A", 0, 0), s("A", 1 * MIN, 60, playing=False)])
+    assert r.observe(s("A", 1 * MIN, 600, playing=False)) == []
+    assert r.observe(s("B", 0, 610))[0].started_at_ms == 0
+
+
+def test_different_track_after_restart_drops_the_restored_play():
+    # It ended while the service was down: no event with guessed data (recently-played has it).
+    r = restarted([s("A", 0, 0), s("A", 2 * MIN, 120)])
+    assert r.observe(s("B", 30 * SEC, 300)) == []
+    assert outcomes(r.observe(s("C", 0, 400))) == [("B", Outcome.SKIPPED, False)]
+
+
+def test_same_track_that_restarted_meanwhile_is_a_new_play():
+    # Saved at 2:30, down 4 min: with repeat-one it started again and is at 3:00, not at 6:30.
+    r = restarted([s("A", 0, 0), s("A", 2 * MIN + 30 * SEC, 150)])
+    assert r.observe(s("A", 3 * MIN, 390)) == []
+    events = r.observe(s("B", 0, 400))
+    assert outcomes(events) == [("A", Outcome.COMPLETED, False)]
+    assert events[0].started_at_ms == (390 - 180) * SEC
+
+
+def test_nothing_playing_after_restart_drops_the_restored_play():
+    r = restarted([s("A", 0, 0), s("A", 2 * MIN, 120)])
+    assert r.observe(None) == []
+    assert r.snapshot() is None
+
+
+def test_restore_rejects_malformed_snapshots():
+    with pytest.raises(KeyError):
+        Reconstructor().restore({"first": {}})
+    r, _ = feed([s("A", 0, 0)])
+    snapshot = r.snapshot()
+    snapshot["last"]["unexpected"] = 1
+    with pytest.raises(TypeError):
+        Reconstructor().restore(snapshot)
 
 
 # --- event fields ----------------------------------------------------------------------------
