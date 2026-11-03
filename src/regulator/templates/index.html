@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estadísticas · Spotify Regulator</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #6f6e69;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --deemph: #c3c2b7;
+    --wash: rgba(42, 120, 214, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #f0efec;
+      --ink-2: #c3c2b7;
+      --muted: #a3a29c;
+      --axis: #383835;
+      --ring: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --deemph: #4a4a46;
+      --wash: rgba(57, 135, 229, 0.18);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #a3a29c;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --deemph: #4a4a46;
+    --wash: rgba(57, 135, 229, 0.18);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 16px; }
+  header h1 { font-size: 20px; margin: 4px 0 12px; }
+  header h1 span { color: var(--ink-2); font-weight: 400; }
+
+  /* Filters: one row above everything they scope. */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .seg a { padding: 6px 12px; text-decoration: none; color: var(--ink-2); }
+  .seg a[aria-current="page"] { background: var(--wash); color: var(--ink); font-weight: 600; }
+  .nav { display: flex; align-items: center; gap: 8px; }
+  .nav a, .nav .off {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--ring);
+    background: var(--surface); text-decoration: none;
+  }
+  .nav .off { color: var(--axis); }
+  .nav strong { font-weight: 600; }
+  .today { color: var(--ink-2); font-size: 14px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile, .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; }
+  .tile { padding: 12px 14px; }
+  .tile .label { font-size: 13px; color: var(--ink-2); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .note { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; overflow-wrap: anywhere; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 16px; align-items: start; }
+  .card { padding: 16px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .sub { font-size: 13px; color: var(--ink-2); margin: 0 0 12px; }
+  .empty { color: var(--ink-2); font-size: 14px; }
+
+  /* Ranked horizontal bars: one hue, thin, square at the baseline, rounded data-end. */
+  ol.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  ol.bars .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  ol.bars .name { min-width: 0; overflow-wrap: anywhere; }
+  ol.bars .detail { color: var(--ink-2); font-size: 13px; }
+  ol.bars .count { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  ol.bars .bar { height: 8px; margin-top: 4px; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  ol.bars li:hover .bar { filter: brightness(1.12); }
+
+  /* Diversity: small multiples, one per measure (never two scales on one chart). */
+  .multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+  figure.mini { margin: 0; }
+  figure.mini figcaption { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .cols { display: flex; align-items: flex-end; gap: 6px; height: 112px; border-bottom: 1px solid var(--axis); }
+  .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+  .col .fill { width: 100%; max-width: 24px; background: var(--deemph); border-radius: 4px 4px 0 0; }
+  .col.current .fill { background: var(--series-1); }
+  .col:hover .fill { filter: brightness(1.12); }
+  .col .val { font-size: 12px; font-weight: 600; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  .xlabels { display: flex; gap: 6px; margin-top: 4px; }
+  .xlabels span { flex: 1; text-align: center; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--ring); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13px; }
+
+  footer { color: var(--ink-2); font-size: 13.5px; margin: 8px 0 24px; }
+  footer .downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  footer .downloads a {
+    padding: 6px 12px; border: 1px solid var(--ring); border-radius: 8px; background: var(--surface);
+    text-decoration: none; color: var(--ink);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Estadísticas <span>· Spotify Regulator</span></h1>
+  </header>
+
+  <nav class="filters" aria-label="Periodo">
+    <div class="seg">
+      {% for kind, name in kinds %}
+      <a href="?p={{ kind }}&d={{ period.first_day.isoformat() }}"{% if kind == period.kind %} aria-current="page"{% endif %}>{{ name }}</a>
+      {% endfor %}
+    </div>
+    <div class="nav">
+      <a href="?p={{ period.kind }}&d={{ previous.first_day.isoformat() }}" aria-label="Periodo anterior">‹</a>
+      <strong>{{ label }}</strong>
+      {% if next %}<a href="?p={{ period.kind }}&d={{ next.first_day.isoformat() }}" aria-label="Periodo siguiente">›</a>{% else %}<span class="off" aria-hidden="true">›</span>{% endif %}
+    </div>
+    {% if not is_current %}<a class="today" href="?p={{ period.kind }}">Volver a hoy</a>{% endif %}
+  </nav>
+
+  {% if empty_db %}
+  <p class="empty">Todavía no hay base de datos: el servicio aún no ha registrado nada.</p>
+  {% else %}
+
+  <section class="kpis" aria-label="Resumen">
+    <div class="tile">
+      <div class="label">Escuchas</div>
+      <div class="value">{{ summary.listens }}</div>
+      <div class="note">{{ summary.songs }} canciones distintas</div>
+    </div>
+    <div class="tile">
+      <div class="label">Artistas distintos</div>
+      <div class="value">{{ summary.artists }}</div>
+    </div>
+    <div class="tile">
+      <div class="label">Repetición</div>
+      <div class="value">{{ view.repetition }}</div>
+      {% if summary.most_repeated %}<div class="note">«{{ summary.most_repeated.name }}»: {{ summary.most_repeated.count }} de {{ summary.listens }}</div>{% endif %}
+    </div>
+    <div class="tile">
+      <div class="label">Tasa de skips</div>
+      <div class="value">{{ view.skip_rate }}</div>
+      <div class="note">{{ summary.skipped }} de {{ summary.completed + summary.skipped }} reproducciones</div>
+    </div>
+    <div class="tile">
+      <div class="label">Superaciones del límite</div>
+      <div class="value">{{ summary.limit_total }}</div>
+      <div class="note">veces que sonó una canción ya en su límite</div>
+    </div>
+  </section>
+
+  <section class="cards">
+    <div class="card">
+      <h2>Canciones más escuchadas</h2>
+      {% if view.top_songs %}
+      <ol class="bars">
+        {% for item in view.top_songs %}
+        <li title="{{ item.name }} — {{ item.count }} escuchas">
+          <div class="row">
+            <span class="name">{{ item.name }} <span class="detail">· {{ item.detail }}</span></span>
+            <span class="count">{{ item.count }}</span>
+          </div>
+          <div class="bar" style="width: {{ '%.1f' % item.pct }}%"></div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}<p class="empty">Sin escuchas en este periodo.</p>{% endif %}
+    </div>
+    <div class="card">
+      <h2>Artistas más escuchados</h2>
+      {% if view.top_artists %}
+      <ol class="bars">
+        {% for item in view.top_artists %}
+        <li title="{{ item.name }} — {{ item.count }} escuchas">
+          <div class="row">
+            <span class="name">{{ item.name }}</span>
+            <span class="count">{{ item.count }}</span>
+          </div>
+          <div class="bar" style="width: {{ '%.1f' % item.pct }}%"></div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}<p class="empty">Sin escuchas en este periodo.</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom: 16px">
+    <h2>Diversidad</h2>
+    <p class="sub">Últimas 8 semanas; en azul, la semana del periodo elegido. La entropía mide cuánto se reparten tus escuchas entre artistas: 0 es un solo artista, y cada bit más equivale a duplicar los artistas escuchados por igual.</p>
+    <div class="multiples">
+      {% for chart in diversity.charts %}
+      <figure class="mini">
+        <figcaption>{{ chart.title }}</figcaption>
+        <div class="cols" role="img" aria-label="{{ chart.title }} por semana: {% for c in chart.columns %}{{ c.week }} {{ c.value }}{% if not loop.last %}; {% endif %}{% endfor %}">
+          {% for c in chart.columns %}
+          <div class="col{% if c.current %} current{% endif %}" title="Semana del {{ c.week }}: {{ c.value }}">
+            {% if c.current %}<span class="val">{{ c.value }}</span>{% endif %}
+            <div class="fill" style="height: {{ '%.1f' % c.pct }}%"></div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="xlabels" aria-hidden="true">{% for c in chart.columns %}<span>{{ c.label }}</span>{% endfor %}</div>
+      </figure>
+      {% endfor %}
+    </div>
+    <details>
+      <summary>Ver tabla</summary>
+      <table>
+        <thead><tr><th>Semana del</th><th class="n">Escuchas</th><th class="n">Artistas</th><th class="n">Nuevos</th><th class="n">Entropía</th></tr></thead>
+        <tbody>
+          {% for row in diversity.rows %}
+          <tr><td>{{ row.week }}</td><td class="n">{{ row.listens }}</td><td class="n">{{ row.artists }}</td><td class="n">{{ row.new_artists }}</td><td class="n">{{ row.entropy }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <section class="cards">
+    <div class="card">
+      <h2>Límite diario (F2)</h2>
+      <p class="sub">Cada vez que sonó una canción que ya había llegado a su límite del día.</p>
+      <table>
+        <tbody>
+          {% for label_text, count in view.limit_results %}
+          <tr><td>{{ label_text }}</td><td class="n">{{ count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if view.limit_top %}
+      <h2 style="margin-top: 16px">Canciones que más se pasan</h2>
+      <ol class="bars" style="margin-top: 8px">
+        {% for item in view.limit_top %}
+        <li title="{{ item.name }} — {{ item.count }} veces">
+          <div class="row">
+            <span class="name">{{ item.name }} <span class="detail">· {{ item.detail }}</span></span>
+            <span class="count">{{ item.count }}</span>
+          </div>
+          <div class="bar" style="width: {{ '%.1f' % item.pct }}%"></div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h2>Ráfagas de skips (F3)</h2>
+      <p class="empty">Pendiente: aparecerá aquí cuando se implemente la F3.</p>
+    </div>
+  </section>
+  {% endif %}
+
+  <footer>
+    <div class="downloads">
+      <a href="/export/escuchas.csv">Descargar escuchas (CSV)</a>
+      <a href="/export/limite-diario.csv">Descargar límite diario (CSV)</a>
+    </div>
+    Cuenta como escucha lo que llegó al 50 % de la canción o a 4 minutos, y lo que solo registró recently-played.
+    El día empieza a las {{ day_starts_at }} ({{ timezone }}).
+    {% if data_since %}Hay datos desde el {{ data_since }}.{% endif %}
+  </footer>
+</div>
+</body>
+</html>

@@ -78,6 +78,21 @@ CREATE TABLE IF NOT EXISTS state (
 
 DEFAULT_MATCH_MARGIN_MS = 20_000
 
+# What counts as a listen (decided in phase 2), shared by the daily limit and the stats: completed
+# detector plays, plus recently-played entries the detector never saw. When both saw a play, the
+# detector's outcome decides, also before the next sync pairs them (an entry with a detector event
+# within the margin is left out). Takes the margin as its only parameter.
+LISTENS_SQL = """
+    SELECT track_id, track_name, artist_ids, artist_names, ended_at_ms AS at_ms
+      FROM events WHERE outcome = 'completed'
+    UNION ALL
+    SELECT r.track_id, r.track_name, r.artist_ids, r.artist_names, r.played_at_ms AS at_ms
+      FROM recent_plays r
+     WHERE r.event_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM events e
+                        WHERE e.track_id = r.track_id AND ABS(e.ended_at_ms - r.played_at_ms) <= ?)
+"""
+
 
 @dataclass(frozen=True)
 class DailyLimitEvent:
@@ -199,18 +214,10 @@ class Storage:
         return linked
 
     def count_listens(self, track_id: str, *, since_ms: int, margin_ms: int = DEFAULT_MATCH_MARGIN_MS) -> int:
-        """Listens of a track since `since_ms`: completed detector plays plus recently-played entries
-        the detector never saw. When both saw a play, the detector's outcome decides, also before
-        the next sync pairs them (an entry with a detector event within the margin is skipped)."""
+        """Listens of a track since `since_ms` (see LISTENS_SQL for what counts)."""
         row = self._db.execute(
-            """SELECT
-                 (SELECT count(*) FROM events
-                   WHERE track_id = ? AND outcome = 'completed' AND ended_at_ms >= ?)
-               + (SELECT count(*) FROM recent_plays r
-                   WHERE r.track_id = ? AND r.played_at_ms >= ? AND r.event_id IS NULL
-                     AND NOT EXISTS (SELECT 1 FROM events e
-                                     WHERE e.track_id = r.track_id AND ABS(e.ended_at_ms - r.played_at_ms) <= ?))""",
-            (track_id, since_ms, track_id, since_ms, margin_ms),
+            f"SELECT count(*) FROM ({LISTENS_SQL}) WHERE track_id = ? AND at_ms >= ?",
+            (margin_ms, track_id, since_ms),
         ).fetchone()
         return row[0]
 

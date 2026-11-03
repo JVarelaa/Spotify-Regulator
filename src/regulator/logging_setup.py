@@ -7,7 +7,8 @@ import logging
 import sys
 from datetime import UTC, datetime
 
-_RESERVED = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime", "taskName"}
+# uvicorn adds `color_message`, the same text with terminal colour codes.
+_RESERVED = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime", "taskName", "color_message"}
 
 
 class JsonFormatter(logging.Formatter):

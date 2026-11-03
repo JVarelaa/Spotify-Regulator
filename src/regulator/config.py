@@ -132,6 +132,10 @@ class Config(BaseModel):
         return value
 
     @property
+    def timezone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+    @property
     def token_path(self) -> Path:
         return self.data_dir / "token.json"
 

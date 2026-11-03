@@ -1,4 +1,4 @@
-"""Command line entry point: `regulator login | check | test-email | run | healthcheck`."""
+"""Command line entry point: `regulator login | check | test-email | run | healthcheck | web`."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import httpx
+import uvicorn
 
 from .auth import AuthError, TokenManager, TokenStore
 from .check import format_results, format_timestamp, run_checks
@@ -24,6 +25,7 @@ from .rules import DailyLimitRule
 from .service import HEARTBEAT_MAX_AGE_S, Service, heartbeat_age
 from .spotify import SpotifyClient
 from .storage import Storage
+from .web import create_app
 
 log = logging.getLogger(__name__)
 
@@ -112,12 +114,23 @@ async def cmd_healthcheck(config: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+async def cmd_web(config: Config, args: argparse.Namespace) -> int:
+    # Our JSON logging handles uvicorn's own logs; the per-request access log is just noise.
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(config), host=args.host, port=args.port, log_config=None, access_log=False)
+    )
+    log.info("web_started", extra={"host": args.host, "port": args.port})
+    await server.serve()
+    return 0
+
+
 COMMANDS = {
     "login": cmd_login,
     "check": cmd_check,
     "test-email": cmd_test_email,
     "run": cmd_run,
     "healthcheck": cmd_healthcheck,
+    "web": cmd_web,
 }
 
 
@@ -143,6 +156,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("test-email", help="envía un correo de prueba con la configuración de email")
     sub.add_parser("run", help="servicio 24/7: registra escuchas y envía avisos")
     sub.add_parser("healthcheck", help="sale con 0 si el servicio dio una vuelta hace poco (para Docker)")
+
+    p_web = sub.add_parser("web", help="web de estadísticas (solo lectura, para tu red local)")
+    p_web.add_argument(
+        "--host",
+        default=os.environ.get("REGULATOR_WEB_HOST", "127.0.0.1"),
+        help="dirección donde escuchar (en Docker: 0.0.0.0, para verla desde otros dispositivos)",
+    )
+    p_web.add_argument("--port", type=int, default=8000)
 
     args = parser.parse_args(argv)
     load_dotenv(Path(".env"))

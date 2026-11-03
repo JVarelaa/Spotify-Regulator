@@ -116,6 +116,16 @@ docker compose exec regulator python -m sqlite3 /data/regulator.db \
   "SELECT day, track_name, plays_today, max_plays, result FROM daily_limit_events ORDER BY id DESC LIMIT 20"
 ```
 
+## 7. Estadísticas (F4)
+
+`docker compose up -d` arranca también el contenedor `web`. Desde cualquier dispositivo de tu
+red, abre `http://<IP del homelab>:8080`: escuchas, canciones y artistas más escuchados,
+repetición, tasa de skips, diversidad de las últimas 8 semanas (artistas distintos, nuevos y
+entropía) y las superaciones del límite diario. Se puede ver por día, semana o mes, y descargar
+las escuchas y el límite diario en CSV.
+
+La web solo lee la base de datos y no tiene login: **no abras el puerto 8080 en el router**.
+
 ## Desarrollo local
 
 ```sh
