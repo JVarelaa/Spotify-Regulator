@@ -41,6 +41,7 @@ class Sample:
     is_playing: bool
     device: str | None
     context_uri: str | None
+    repeat_state: str | None = None  # "off", "context" or "track" (repeat-one)
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ def sample_from_playback(payload: dict | None, observed_at_ms: int) -> Sample | 
         is_playing=bool(payload.get("is_playing")),
         device=(payload.get("device") or {}).get("name"),
         context_uri=(payload.get("context") or {}).get("uri"),
+        repeat_state=payload.get("repeat_state"),
     )
 
 
@@ -119,6 +121,11 @@ class Reconstructor:
     def current(self) -> Sample | None:
         """Latest sample of the play in progress, if any (the rules engine will use this)."""
         return self._play.last if self._play else None
+
+    @property
+    def current_started_at_ms(self) -> int | None:
+        """Estimated start of the play in progress. It identifies the play, also across a restart."""
+        return _started_at(self._play.first) if self._play else None
 
     def observe(self, sample: Sample | None) -> list[ListenEvent]:
         """Feed one snapshot (None = no music playing). Returns the plays it closed."""
@@ -199,7 +206,7 @@ class Reconstructor:
                 album_id=last.album_id,
                 album_name=last.album_name,
                 duration_ms=last.duration_ms,
-                started_at_ms=first.observed_at_ms - first.progress_ms,
+                started_at_ms=_started_at(first),
                 ended_at_ms=last.observed_at_ms,
                 position_ms=last.progress_ms,
                 outcome=outcome,
@@ -209,6 +216,10 @@ class Reconstructor:
             )
         ]
 
+
+
+def _started_at(first: Sample) -> int:
+    return first.observed_at_ms - first.progress_ms
 
 
 def _sample_from_dict(data: dict) -> Sample:

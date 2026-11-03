@@ -54,3 +54,25 @@ def test_polling_defaults_and_overrides(tmp_path, monkeypatch):
 def test_polling_intervals_must_be_positive(tmp_path):
     with pytest.raises(ConfigError):
         load_config(write(tmp_path, "polling:\n  idle_interval_s: 0\n"))
+
+
+def test_daily_limit_from_yaml(tmp_path):
+    config = load_config(write(tmp_path, """
+daily_limit:
+  max_plays: 2
+  day_starts_at: "05:30"
+  overrides:
+    "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC": 5
+"""))
+    limit = config.daily_limit
+    assert limit.dry_run is True
+    assert str(limit.day_starts_at) == "05:30:00"
+    assert limit.limit_for("4uLU6hMCjMI75M1A2tKUQC") == 5
+    assert limit.limit_for("otra") == 2
+
+
+@pytest.mark.parametrize("value", ["4:00", "'25:00'", "'04:00+01:00'"])
+def test_day_start_must_be_a_quoted_local_time(tmp_path, value):
+    # Unquoted 4:00 is the number 240 for YAML; it must not silently become 00:04.
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, f"daily_limit:\n  day_starts_at: {value}\n"))

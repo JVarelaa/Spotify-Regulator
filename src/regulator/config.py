@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
+from datetime import time
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -65,6 +67,50 @@ class PollingConfig(BaseModel):
     recently_played_interval_min: float = Field(60.0, gt=0)
 
 
+# A track's Spotify ID, alone or inside its URI (spotify:track:ID) or link (open.spotify.com/track/ID).
+_TRACK_ID = re.compile(r"(?:^|track[:/])([A-Za-z0-9]{22})(?:$|[?#])")
+
+
+class DailyLimitConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = True
+    max_plays: int = Field(3, ge=0)
+    day_starts_at: time = time(4, 0)
+    skip_after_s: float = Field(5.0, ge=0)
+    overrides: dict[str, Annotated[int, Field(ge=0)]] = {}  # track ID -> its own limit
+
+    @field_validator("day_starts_at", mode="before")
+    @classmethod
+    def _hh_mm(cls, value: object) -> time:
+        if isinstance(value, time):
+            return value
+        # Unquoted, YAML reads 4:00 as the number 240, which would silently become 00:04.
+        if not isinstance(value, str):
+            raise ValueError('escribe la hora entre comillas, p. ej. "04:00"')
+        try:
+            parsed = time.fromisoformat(value.strip())
+        except ValueError:
+            raise ValueError(f"hora no válida: {value!r} (formato HH:MM)") from None
+        if parsed.tzinfo is not None:
+            raise ValueError("sin zona horaria: se usa la de `timezone`")
+        return parsed
+
+    @field_validator("overrides")
+    @classmethod
+    def _track_ids(cls, value: dict[str, int]) -> dict[str, int]:
+        ids = {}
+        for key, limit in value.items():
+            match = _TRACK_ID.search(key.strip())
+            if not match:
+                raise ValueError(f"no reconozco una canción de Spotify en {key!r} (usa su ID o su enlace)")
+            ids[match.group(1)] = limit
+        return ids
+
+    def limit_for(self, track_id: str) -> int:
+        return self.overrides.get(track_id, self.max_plays)
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +120,7 @@ class Config(BaseModel):
     spotify: SpotifyConfig = SpotifyConfig()
     email: EmailConfig | None = None  # without it, notifications only go to the log
     polling: PollingConfig = PollingConfig()
+    daily_limit: DailyLimitConfig = DailyLimitConfig()
 
     @field_validator("timezone")
     @classmethod

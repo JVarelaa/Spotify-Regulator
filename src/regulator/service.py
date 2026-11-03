@@ -6,6 +6,8 @@ Three independent tasks in one process, so a slow one never delays the others:
   file until `regulator login` writes a new one.
 - recently-played: syncs at start and then every hour, only while there is access.
 - notices: login-expiry and lost-access emails, checked every minute.
+- rule notices: sends what the rules (F2) report, so a slow mail server never holds up the player.
+The rules are evaluated in the player task, on every round.
 
 The play in progress is saved as provisional state on every player round (not only on shutdown,
 which a power cut skips), so the next run can carry it on instead of storing it twice.
@@ -19,14 +21,16 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
 from .auth import ReauthRequired, Token, TokenEndpointUnavailable
 from .config import PollingConfig
-from .reconstructor import Reconstructor, sample_from_playback
+from .notify import LogNotifier, NotificationError, Notifier
+from .reconstructor import Reconstructor, Sample, sample_from_playback
 from .recent import RecentlyPlayedSource, sync_recently_played
+from .rules import Notice
 from .spotify import QuotaExceeded, SpotifyError, SpotifyUnavailable
 from .storage import Storage
 
@@ -59,6 +63,10 @@ class Notices(Protocol):
     async def check(self, token: Token | None, dead_token: Token | None) -> None: ...
 
 
+class Rule(Protocol):
+    async def check(self, sample: Sample | None, play_started_ms: int | None, now_ms: int) -> list[Notice]: ...
+
+
 class Service:
     def __init__(
         self,
@@ -69,6 +77,8 @@ class Service:
         polling: PollingConfig,
         heartbeat_path: Path,
         *,
+        rules: Sequence[Rule] = (),
+        notifier: Notifier | None = None,
         reconstructor: Reconstructor | None = None,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -79,6 +89,9 @@ class Service:
         self._notices = notices
         self._polling = polling
         self._heartbeat_path = heartbeat_path
+        self._rules = rules
+        self._notifier = notifier or LogNotifier()
+        self._outbox: asyncio.Queue[Notice] = asyncio.Queue()
         self._reconstructor = reconstructor or Reconstructor()
         self._clock = clock
         self._sleep = sleep
@@ -95,6 +108,7 @@ class Service:
                 tg.create_task(self._player_loop(), name="player"),
                 tg.create_task(self._sync_loop(), name="recently-played"),
                 tg.create_task(self._notices_loop(), name="notices"),
+                tg.create_task(self._outbox_loop(), name="rule-notices"),
             ]
             await stop.wait()
             for task in tasks:
@@ -125,7 +139,8 @@ class Service:
             log.info("access_restored")
         self._access.set()
 
-        sample = sample_from_playback(payload, int(self._clock() * 1000))
+        now_ms = int(self._clock() * 1000)
+        sample = sample_from_playback(payload, now_ms)
         for event in self._reconstructor.observe(sample):
             self._storage.add_event(event)
             log.info(
@@ -138,6 +153,10 @@ class Service:
                 },
             )
         self._save_play()
+        current, started = self._reconstructor.current, self._reconstructor.current_started_at_ms
+        for rule in self._rules:
+            for notice in await rule.check(current, started, now_ms):
+                self._outbox.put_nowait(notice)
         playing = sample is not None and sample.is_playing
         return self._polling.playing_interval_s if playing else self._polling.idle_interval_s
 
@@ -210,6 +229,15 @@ class Service:
         while True:
             await self._notices.check(self._tokens.token, self._tokens.dead_token)
             await self._sleep(NOTICES_CHECK_S)
+
+
+    async def _outbox_loop(self) -> None:
+        while True:
+            notice = await self._outbox.get()
+            try:
+                await self._notifier.send(notice.subject, notice.body)
+            except NotificationError as exc:
+                log.error("rule_notice_failed", extra={"subject": notice.subject, "error": str(exc)})
 
 
 def heartbeat_age(path: Path, *, now: float | None = None) -> float | None:

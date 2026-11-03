@@ -8,6 +8,7 @@ import pytest
 from regulator.auth import ReauthRequired
 from regulator.cli import main
 from regulator.config import PollingConfig
+from regulator.rules import Notice
 from regulator.service import PLAY_STATE_KEY, Service, heartbeat_age
 from regulator.spotify import QuotaExceeded, SpotifyUnavailable
 from regulator.storage import Storage
@@ -252,6 +253,40 @@ def test_stop_ends_cleanly_and_keeps_the_play_for_the_next_run(tmp_path):
     asyncio.run(run_for(service, 0.05))
     assert events(db) == []
     assert json.loads(db.get_state(PLAY_STATE_KEY))["last"]["track_id"] == "A"
+
+
+class NoticeRule:
+    """Reports one notice on its first round, like the daily limit when a song reaches it."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def check(self, sample, play_started_ms, now_ms):
+        self.calls.append((sample.track_id if sample else None, play_started_ms))
+        return [Notice("Límite alcanzado", "3/3 hoy")] if len(self.calls) == 1 else []
+
+
+class SlowNotifier:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, subject, body):
+        await asyncio.sleep(0.1)  # real time: a slow mail server
+        self.sent.append(subject)
+
+
+def test_rules_see_every_round_and_their_notices_do_not_hold_up_the_player(tmp_path):
+    client = FakeSpotify(playback("A", 30 * SEC))
+    rule, notifier = NoticeRule(), SlowNotifier()
+    db = Storage(tmp_path / "r.db")
+    service = Service(
+        client, FakeTokens(), db, FakeNotices(), POLLING, tmp_path / "heartbeat",
+        rules=[rule], notifier=notifier, sleep=fast_sleep,
+    )
+    asyncio.run(run_for(service, 0.2))
+    assert notifier.sent == ["Límite alcanzado"]
+    assert len(rule.calls) == client.player_calls > 20
+    assert rule.calls[0][0] == "A" and rule.calls[0][1] is not None
 
 
 # --- healthcheck command -----------------------------------------------------------------------

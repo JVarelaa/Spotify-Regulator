@@ -96,6 +96,26 @@ Para actualizarlo: `docker compose up -d --build`. Si se para con una canción a
 arrancar la retoma si sigue sonando por donde corresponde; si no, se descarta y la recupera
 `recently-played` (si sonó más de 30 s), así que nunca cuenta dos veces.
 
+## 6. Límite diario por canción (F2)
+
+Cuando empieza a sonar una canción que ya tiene `max_plays` escuchas hoy (el día empieza a las
+`day_starts_at`), al llegar a `skip_after_s` segundos la salta (si el repeat está en modo
+canción, antes lo quita). Cuenta como escucha lo que llega al 50 % o a 4 min y lo que solo
+registra recently-played.
+
+Viene en **modo simulación** (`dry_run: true`): solo registra "habría saltado" y avisa por
+correo la primera vez de cada canción y día. Para activarlo de verdad, pon `dry_run: false` en
+`config.yaml` y `docker compose restart`.
+
+Cada reproducción que supera el límite queda en la tabla `daily_limit_events` con su resultado:
+`would_skip` (simulación), `skipped`, `failed` o `cancelled` (la cortaste tú antes de que
+actuara).
+
+```sh
+docker compose exec regulator python -m sqlite3 /data/regulator.db \
+  "SELECT day, track_name, plays_today, max_plays, result FROM daily_limit_events ORDER BY id DESC LIMIT 20"
+```
+
 ## Desarrollo local
 
 ```sh

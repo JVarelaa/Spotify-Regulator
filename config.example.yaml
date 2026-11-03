@@ -31,3 +31,15 @@ polling:
   playing_interval_s: 3              # mientras suena música
   idle_interval_s: 30                # sin nada sonando o en pausa
   recently_played_interval_min: 60   # sincronización del historial reciente
+
+# F2: límite diario de escuchas por canción. Cuenta como escucha lo que llega al 50 % de la
+# canción o a 4 min, y lo que solo registra recently-played. Con dry_run: true solo registra
+# "habría saltado" (tabla daily_limit_events) y avisa; no toca el reproductor.
+daily_limit:
+  dry_run: true
+  max_plays: 3
+  day_starts_at: "04:00"   # entre comillas: sin ellas YAML lo lee como un número
+  skip_after_s: 5          # segundos que tiene que sonar antes de saltarla
+  overrides: {}            # límites propios por canción (ID o enlace de Spotify, entre comillas):
+  # overrides:
+  #   "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC": 5

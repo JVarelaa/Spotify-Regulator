@@ -20,6 +20,7 @@ from .expiry import ExpiryNotices
 from .logging_setup import setup_logging
 from .login import login
 from .notify import NotificationError, build_notifier
+from .rules import DailyLimitRule
 from .service import HEARTBEAT_MAX_AGE_S, Service, heartbeat_age
 from .spotify import SpotifyClient
 from .storage import Storage
@@ -78,11 +79,17 @@ async def cmd_run(config: Config, args: argparse.Namespace) -> int:
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             tokens = TokenManager(TokenStore(config.token_path), creds.spotify_client_id, http)
+            client = SpotifyClient(tokens, http)
             notices = ExpiryNotices(config.notices_path, notifier, config.timezone, config.spotify.redirect_port)
+            daily_limit = DailyLimitRule(config.daily_limit, config.timezone, storage, client)
             service = Service(
-                SpotifyClient(tokens, http), tokens, storage, notices, config.polling, config.heartbeat_path
+                client, tokens, storage, notices, config.polling, config.heartbeat_path,
+                rules=[daily_limit], notifier=notifier,
             )
-            log.info("service_started", extra={"polling": config.polling.model_dump()})
+            log.info(
+                "service_started",
+                extra={"polling": config.polling.model_dump(), "daily_limit": config.daily_limit.model_dump(mode="json")},
+            )
             try:
                 await service.run(stop)
             except ExceptionGroup:

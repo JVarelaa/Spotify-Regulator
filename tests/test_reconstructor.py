@@ -262,3 +262,20 @@ def test_parse_local_file_uses_uri_and_tolerates_missing_context():
     assert sample.track_id == "spotify:local:x"
     assert sample.context_uri is None
     assert sample.device is None
+
+
+def test_repeat_state_and_identity_of_the_play_in_progress():
+    payload = {
+        "currently_playing_type": "track",
+        "is_playing": True,
+        "progress_ms": 30 * SEC,
+        "repeat_state": "track",
+        "item": {"type": "track", "id": "A", "name": "Song A", "duration_ms": 4 * MIN},
+    }
+    sample = sample_from_playback(payload, observed_at_ms=100 * SEC)
+    assert sample.repeat_state == "track"
+    r = Reconstructor()
+    assert r.current_started_at_ms is None
+    r.observe(sample)
+    r.observe(s("A", 33 * SEC, 103))
+    assert r.current_started_at_ms == 70 * SEC  # first sample minus its position, stable
